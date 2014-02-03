@@ -94,13 +94,13 @@ rules[:rule_one_down_and_then_up_or_stable] = Proc.new do |candlestics|
     previous2 = candlestics.fetch(-3)
     previous3 = candlestics.fetch(-4)
     if (
-    (previous1[:direction]=='down'
+    (previous1[:direction]=='down' || previous1[:direction] == '-'
     #&& previous1[:close]/ previous1[:open] < 0.95) ||
     #(previous1[:direction]=='down' && previous2[:direction]=='down' && previous1[:close]/previous2[:open] < 0.975) ||
     #(previous1[:direction]=='down' && previous2[:direction]=='down' && previous3[:direction]=='down' && previous1[:close]/previous3[:open] < 0.97)
     )
     ) &&
-        (current[:direction] == 'up' || current[:direction] == '-')
+        (current[:direction] == 'up')
       result = {}
       result[:open_price] = current[:close] * 1.0
       result[:close_price] = current[:close]*1.020
@@ -123,6 +123,7 @@ def print_test_result(test_result, format = :full)
 
   end
   puts "#{color}Num wins: #{test_result[:wins]} - Num losts: #{test_result[:fails]} = score: #{test_result[:win_rate]}#{ANSI.reset}"
+  puts "#{color}Gain: #{test_result[:total_gain]}#{ANSI.reset}"
   puts "#{color}-----------------------------------------------------#{ANSI.reset}"
 end
 

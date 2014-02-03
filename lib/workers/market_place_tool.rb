@@ -11,6 +11,7 @@ class MarketPlaceTool
   def initialize(key, secret)
     @cryptsy = Cryptsy::API::Client.new(key, secret)
     @cryptsy_timeshift = -5.hours
+    @cryptsy_transaction_fee = 0.005 # buy 0.2%, sell 0.3% = 0.5% for buy/sell transaction
     @order_ttl = 30.seconds
   end
 
@@ -123,83 +124,9 @@ class MarketPlaceTool
     end
   end
 
-  #def compute_candlesticks(market_label, interval)
-  #  market_trades = MarketTrade.where()
-  #  #market_trades.sort! { |a, b| a['tradeid'].to_i<=>b['tradeid'].to_i }
-  #  #CSV.open("market_trades.csv", "wb") do |csv|
-  #  #csv << [mt['tradeid'], mt['datetime'], Time.now - dt_first, mt['initiate_ordertype'],
-  #  #        mt['tradeprice'],
-  #  #        if mt['initiate_ordertype']=="Buy" then
-  #  #          mt['tradeprice']
-  #  #        end,
-  #  #        if mt['initiate_ordertype']=="Sell" then
-  #  #          mt['tradeprice']
-  #  #        end,
-  #  #        nil, open, close, high, low]
-  #    wanted_queue_length = 8
-  #    queue = []
-  #    num_ok_cases = 0
-  #    target_buy_rate_count = 0
-  #    total_count = 0
-  #    dt_first = market_trades.first['datetime'].to_datetime
-  #    market_trades.each do |mt|
-  #      total_count += 1
-  #      if mt['total'].to_f >= min_total
-  #        if queue.length < wanted_queue_length
-  #          queue.push mt
-  #        end
-  #        if queue.length == wanted_queue_length
-  #          num_buys = queue.count { |i| i['initiate_ordertype'] == 'Buy' }
-  #          num_sells = queue.count { |i| i['initiate_ordertype'] == 'Sell' }
-  #          buys_rate = num_buys/wanted_queue_length.to_f
-  #          color = ANSI.reset
-  #          open = queue.first['tradeprice']
-  #          close = queue.last['tradeprice']
-  #          low = queue.map { |i| i['tradeprice'].to_f }.min
-  #          high = queue.map { |i| i['tradeprice'].to_f }.max
-  #
-  #
-  #
-  #          if buys_rate >= 0.9 && (open < close || close == high)
-  #            #if close == high
-  #            target_buy_rate_count += 1
-  #            color = ANSI.red
-  #          end
-  #          num_ok_cases += 1
-  #          #end
-  #          puts " #{color}#{queue.first['datetime']} - #{queue.last['datetime']} :: B:#{num_buys}|S:#{num_sells} - buy rate=#{buys_rate} - Open:#{open}|Close:#{close} || Low:#{low}|High:#{high} #{ANSI.reset}"
-  #          queue.shift
-  #        end
-  #      end
-  #    end
-  #    puts "Number of good cases: #{target_buy_rate_count} from #{num_ok_cases} from #{total_count}"
-  #  end
-  #  candlesticks = generate_candlesticks market_trades
-  #  test_rules candlesticks
-  #  last_cs = nil
-  #  #CSV.open("market_trades_candlesticks.csv", "wb") do |csv|
-  #  candlesticks.each do |cs, index|
-  #    #csv << [index, cs[:interval_start], cs[:interval_end], nil, cs[:open], cs[:close], cs[:high], cs[:low], nil, cs[:trades].length, cs[:direction]]
-  #    color = ANSI.reset
-  #    if last_cs != nil && last_cs[:direction]=='down' && (cs[:direction] == 'up' || cs[:direction] == '-')
-  #      color = ANSI.red
-  #      #unless Order.find_orders_for_market(key, 'created').any?
-  #      #  position = open_position(key, {price: cs[:open], quantity: market_settings[:ats][:quantity]})
-  #      #end
-  #    end
-  #    puts " #{color}#{format_dt cs[:interval_start]} - #{format_dt cs[:interval_end]} :: O:#{format_price cs[:open]}|C:#{format_price cs[:close]} || H:#{format_price cs[:high]}|L:#{format_price cs[:low]} (#{cs[:trades].length} trades)} #{ANSI.reset}"
-  #    last_cs = cs
-  #  end
-  #  #end
-  #
-  #
-  #  puts '-----------------------------------------------------------------'
-  #end
-
   def test_rule(candlesticks, &block)
-    num_finished_positions = 0
-    num_canceled_positions = 0
     stack = []
+    position_cmds = []
     position_cmd = nil
     cmd_state = nil
     candlesticks.each do |cs, index|
@@ -209,14 +136,13 @@ class MarketPlaceTool
         if position_cmd
           cmd_state = :wait_buy
           new_position = true
+          position_cmds << position_cmd
         end
       else
         cmd_state = process_command position_cmd, stack.last, cmd_state
         if cmd_state == :finished
-          num_finished_positions += 1
           position_cmd = nil
         elsif cmd_state == :canceled
-          num_canceled_positions += 1
           position_cmd = nil
         end
       end
@@ -231,23 +157,42 @@ class MarketPlaceTool
       end
     end
 
+    num_finished = position_cmds.count { |p| p[:resolution]==:finished }
+    num_canceled = position_cmds.count { |p| p[:resolution]==:canceled }
+    num_waiting = position_cmds.count { |p| p[:resolution] == nil }
+    position_cmds.each do |p|
+      if p[:trade_close_price] && p[:trade_open_price]
+        p[:gain] = (p[:trade_close_price]/p[:trade_open_price]) - 1.0 - @cryptsy_transaction_fee
+      end
+    end
+
+
     return {
-        :wins => num_finished_positions,
-        :fails => num_canceled_positions,
-        :win_rate => (num_finished_positions - num_canceled_positions)
+        wins: num_finished,
+        fails: num_canceled,
+        waiting: num_waiting,
+        win_rate: (num_finished - num_canceled),
+        positions: position_cmds,
+        total_gain: position_cmds.map { |p| p[:gain] || 0 }.sum
     }
   end
 
   def process_command(command, current_candlestick, state)
+    price = 0
     if state == :wait_buy && (current_candlestick[:buy_low] || Float::MAX) <= command[:open_price] && current_candlestick[:quantity] > 0
       state = :bought
+      command[:trade_open_price] = command[:open_price]
       puts "#{ANSI.blue}Activating command with price #{format_price command[:open_price]} | min:#{format_price current_candlestick[:buy_low]} (#{command.inspect})#{ANSI.reset}"
     elsif state == :bought
       if (current_candlestick[:sell_high] || Float::MIN) >= command[:close_price] && current_candlestick[:quantity] > 0
         state = :finished
+        command[:trade_close_price] = command[:close_price]
+        command[:resolution] = :finished
         puts "#{ANSI.green}Finishing command with price #{format_price command[:close_price]} | max:#{format_price current_candlestick[:sell_high]} (#{command.inspect})#{ANSI.reset}"
       elsif current_candlestick[:close] < command[:cancel_price]
         state = :canceled
+        command[:trade_close_price] = current_candlestick[:close]
+        command[:resolution] = :canceled
         puts "#{ANSI.yellow}Canceling command with price #{format_price current_candlestick[:close]} (#{command.inspect})#{ANSI.reset}"
       end
     end
