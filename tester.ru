@@ -1,9 +1,23 @@
 # encoding:UTF-8
 require 'ansi/code'
+require 'slop'
 
 require_relative 'config/environment.rb'
 require_relative 'lib/workers/cryptsy/api'
 require_relative 'lib/workers/market_place_tool'
+
+
+#options parsing
+opts = Slop.parse do
+  banner 'Usage: tester.ru [options]'
+
+  on 'cslen=', 'Generated candlestick lenght'
+  on 'v', 'verbose', 'Enable verbose mode'
+end
+
+# if ARGV is `--name Lee -v`
+#opts.verbose?  #=> true
+puts "Cmd arguments: #{opts.to_hash.inspect}"
 
 
 default_market_settings = {
@@ -56,6 +70,13 @@ markets_filter = ['DOGE/BTC']
 markets_of_interest = markets_settings.select { |key| markets_filter.include? key }
 markets_of_interest.each { |k, v| puts "Market settings for #{k}: #{v.inspect}" }
 
+# default constants
+@candlestick_interval_lenght = if opts[:cslen] && opts[:cslen].to_i > 60 then
+                                 opts[:cslen].to_i
+                               else
+                                 300
+                               end
+
 
 @sleep_time = 30 #seconds
 program_start = Time.now
@@ -73,11 +94,11 @@ rules[:rule_one_down_and_then_up_or_stable] = Proc.new do |candlestics|
     previous2 = candlestics.fetch(-3)
     previous3 = candlestics.fetch(-4)
     if (
-      (previous1[:direction]=='down'
-      #&& previous1[:close]/ previous1[:open] < 0.95) ||
-      #(previous1[:direction]=='down' && previous2[:direction]=='down' && previous1[:close]/previous2[:open] < 0.975) ||
-      #(previous1[:direction]=='down' && previous2[:direction]=='down' && previous3[:direction]=='down' && previous1[:close]/previous3[:open] < 0.97)
-      )
+    (previous1[:direction]=='down'
+    #&& previous1[:close]/ previous1[:open] < 0.95) ||
+    #(previous1[:direction]=='down' && previous2[:direction]=='down' && previous1[:close]/previous2[:open] < 0.975) ||
+    #(previous1[:direction]=='down' && previous2[:direction]=='down' && previous3[:direction]=='down' && previous1[:close]/previous3[:open] < 0.97)
+    )
     ) &&
         (current[:direction] == 'up' || current[:direction] == '-')
       result = {}
@@ -115,7 +136,7 @@ while loop_run do
   markets_of_interest.each do |market_label, settings|
     puts "Test ATS rules for #{market_label}"
     trades = market_place.get_trades(market_label, Time.now-7.days)
-    candlesticks = market_place.generate_candlesticks trades, 300
+    candlesticks = market_place.generate_candlesticks trades, @candlestick_interval_lenght
     test_result = market_place.test_rule candlesticks, &rules.values.first
     test_result[:market_label] = market_label
     test_result[:rule] = rules.keys.first

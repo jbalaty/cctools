@@ -66,7 +66,7 @@ program_start = Time.now
 key=Cctools::Application.config.cryptsy_key
 secret=Cctools::Application.config.cryptsy_secret
 if key == nil || secret == nil
-  raise Error 'Empty cryptsy key or secret'
+  raise 'Empty cryptsy key or secret'
 end
 market_place = MarketPlaceTool.new(key, secret)
 last_market_refresh_time = GlobalValues.find_by_key('last_markets_refresh_time') || GlobalValues.new({'key' => 'last_markets_refresh_time', 'value' => (Time.now - 1.year).to_s})

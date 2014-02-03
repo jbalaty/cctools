@@ -48,3 +48,4 @@ end
 #gem 'cryptsy-api'
 gem 'httparty'
 gem 'ansi'
+gem 'slop'
