@@ -285,7 +285,7 @@ class MarketPlaceTool
   end
 
   def generate_candlesticks(trades, length_secs = 60)
-    puts "Generating candlesticks from trades (num of trades: #{trades.length})"
+    puts "Generating candlesticks from trades (num of trades: #{trades.length}) interval lenght: #{length_secs} seconds (#{length_secs/60.0} minutes)"
     dt_first = trades.first['datetime'].change(min: 0)
     candlesticks = []
     # divide trades into intervals
