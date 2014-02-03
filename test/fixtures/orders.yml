@@ -1,0 +1,25 @@
+# Read about fixtures at http://api.rubyonrails.org/classes/ActiveRecord/Fixtures.html
+
+one:
+  extern_id: MyString
+  extern_system: MyString
+  type: 
+  datetime: 2014-02-02 14:21:32
+  market_lable: MyString
+  quantity: 9.99
+  target_quantity_no_fees: 9.99
+  target_quantity_incl_fees: 9.99
+  price: 9.99
+  state: MyString
+
+two:
+  extern_id: MyString
+  extern_system: MyString
+  type: 
+  datetime: 2014-02-02 14:21:32
+  market_lable: MyString
+  quantity: 9.99
+  target_quantity_no_fees: 9.99
+  target_quantity_incl_fees: 9.99
+  price: 9.99
+  state: MyString

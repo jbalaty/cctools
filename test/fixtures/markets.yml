@@ -1,0 +1,13 @@
+# Read about fixtures at http://api.rubyonrails.org/classes/ActiveRecord/Fixtures.html
+
+one:
+  marketid: MyString
+  label: MyString
+  primary_currency_code: MyString
+  secondary_currency_code: MyString
+
+two:
+  marketid: MyString
+  label: MyString
+  primary_currency_code: MyString
+  secondary_currency_code: MyString

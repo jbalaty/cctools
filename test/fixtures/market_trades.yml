@@ -1,0 +1,15 @@
+# Read about fixtures at http://api.rubyonrails.org/classes/ActiveRecord/Fixtures.html
+
+one:
+  marketid: MyString
+  tradeid: MyString
+  datetime: 2014-01-21 21:42:02
+  tradeprice: 9.99
+  quantity: 9.99
+
+two:
+  marketid: MyString
+  tradeid: MyString
+  datetime: 2014-01-21 21:42:02
+  tradeprice: 9.99
+  quantity: 9.99
