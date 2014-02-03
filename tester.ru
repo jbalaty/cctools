@@ -71,7 +71,7 @@ markets_of_interest = markets_settings.select { |key| markets_filter.include? ke
 markets_of_interest.each { |k, v| puts "Market settings for #{k}: #{v.inspect}" }
 
 # default constants
-@candlestick_interval_lenght = if opts[:cslen] && opts[:cslen].to_i > 60 then
+@candlestick_interval_lenght = if opts[:cslen] && opts[:cslen].to_i > 10 then
                                  opts[:cslen].to_i
                                else
                                  300
@@ -112,7 +112,7 @@ end
 
 
 def print_test_result(test_result, format = :full)
-  color = if test_result[:win_rate] > 1.0 then
+  color = if test_result[:win_rate] > 0 then
             ANSI.green
           else
             ANSI.red
