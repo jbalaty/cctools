@@ -123,7 +123,7 @@ def print_test_result(test_result, format = :full)
 
   end
   puts "#{color}Num wins: #{test_result[:wins]} - Num losts: #{test_result[:fails]} = score: #{test_result[:win_rate]}#{ANSI.reset}"
-  puts "#{color}Gain: #{test_result[:total_gain]}#{ANSI.reset} (#{sprinf '%.2f', test_result[:total_gain]*100}%)"
+  puts "#{color}Gain: #{test_result[:total_gain]}#{ANSI.reset} (#{sprintf '%.2f', test_result[:total_gain]*100}%)"
   puts "#{color}-----------------------------------------------------#{ANSI.reset}"
 end
 
