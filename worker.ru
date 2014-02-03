@@ -65,7 +65,7 @@ markets_of_interest.each { |k, v| puts "Market settings for #{k}: #{v.inspect}" 
 program_start = Time.now
 key=Cctools::Application.config.cryptsy_key
 secret=Cctools::Application.config.cryptsy_secret
-if key = nil || secret = nil
+if key == nil || secret == nil
   raise Error 'Empty cryptsy key or secret'
 end
 market_place = MarketPlaceTool.new(key, secret)
