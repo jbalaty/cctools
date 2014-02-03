@@ -231,20 +231,24 @@ class MarketPlaceTool
       end
     end
 
-    return {:wins => num_finished_positions, :fails => num_canceled_positions, :win_rate => (num_finished_positions - num_canceled_positions)}
+    return {
+        :wins => num_finished_positions,
+        :fails => num_canceled_positions,
+        :win_rate => (num_finished_positions - num_canceled_positions)
+    }
   end
 
   def process_command(command, current_candlestick, state)
     if state == :wait_buy && (current_candlestick[:buy_low] || Float::MAX) <= command[:open_price] && current_candlestick[:quantity] > 0
       state = :bought
-      puts "#{ANSI.blue}Activating command with price #{command[:open_price]} | min:#{current_candlestick[:buy_low]} (#{command.inspect})#{ANSI.reset}"
+      puts "#{ANSI.blue}Activating command with price #{format_price command[:open_price]} | min:#{format_price current_candlestick[:buy_low]} (#{command.inspect})#{ANSI.reset}"
     elsif state == :bought
       if (current_candlestick[:sell_high] || Float::MIN) >= command[:close_price] && current_candlestick[:quantity] > 0
         state = :finished
-        puts "#{ANSI.green}Finishing command with price #{command[:close_price]} | max:#{current_candlestick[:sell_high]} (#{command.inspect})#{ANSI.reset}"
+        puts "#{ANSI.green}Finishing command with price #{format_price command[:close_price]} | max:#{format_price current_candlestick[:sell_high]} (#{command.inspect})#{ANSI.reset}"
       elsif current_candlestick[:close] < command[:cancel_price]
         state = :canceled
-        puts "#{ANSI.yellow}Canceling command with price #{current_candlestick[:close]} (#{command.inspect})#{ANSI.reset}"
+        puts "#{ANSI.yellow}Canceling command with price #{format_price current_candlestick[:close]} (#{command.inspect})#{ANSI.reset}"
       end
     end
     state
@@ -280,11 +284,10 @@ class MarketPlaceTool
     end
   end
 
-  def generate_candlesticks(trades)
+  def generate_candlesticks(trades, length_secs = 60)
     puts "Generating candlesticks from trades (num of trades: #{trades.length})"
     dt_first = trades.first['datetime'].change(min: 0)
     candlesticks = []
-    length_secs = 120
     # divide trades into intervals
     trades.each do |t|
       dt = t['datetime']
