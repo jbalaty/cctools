@@ -88,32 +88,41 @@ last_market_refresh_time = GlobalValues.find_by_key('last_markets_refresh_time')
 rules = {}
 rules[:rule_one_down_and_then_up_or_stable] = Proc.new do |csticks|
   result = nil
-  if csticks.ensure_backlook 10
-    avg_o = csticks.avg_open
-    avg_c = csticks.avg_close
-    #buy_limit = csticks.min_close + (csticks.avg_close(10) - csticks.min_close) * 0.3
-    buy_limit = avg_c * 0.975
-    nothing=123
-    if (
-    (csticks.direction(2)=='down' || csticks.direction(2) == '-') &&
-        csticks.close(2) <= buy_limit
+  min_stack_length = 50
+  if csticks.ensure_backlook min_stack_length
+    mavg_short = csticks.avg_close 5 #moving avg for last 5 candlesticks
+    mavg_short_prev = csticks.previous_step_state().avg_close 5 #moving avg for last 5 candlesticks
+    mavg_medium = csticks.avg_close min_stack_length / 2
+    #mavg_long_prev = csticks.previous_step_state(1).avg_close min_stack_length / 2
+    mavg_long = csticks.avg_close min_stack_length
+    mavg_long_prev = csticks.previous_step_state(1).avg_close min_stack_length
+
+    #raising market price is above moving average
+    if csticks.close(0) > mavg_long && mavg_long > mavg_long_prev && csticks.close(0) >= (mavg_long + (mavg_long-mavg_medium).abs*55)
+      if  (mavg_short> mavg_short_prev)
+        #((csticks.direction(0) == 'up' || csticks.direction(0) == '-') && csticks.direction(1) == 'up') &&
+        #(csticks.direction(1) == 'down' || csticks.direction(1) == '-')
+        (csticks.close(0) > mavg_short && mavg_short >= mavg_long_prev)
+        result = {}
+        result[:open_price] = csticks.close * 1.0
+        result[:close_price] = csticks.close * 1.012
+        #result[:running_close_drop] = 0.99 # close this position when up trends drops bellow X% of previous max close
+        result[:cancel_price] = csticks.close * 0.99
+      end
+    else # falling market, price is below moving average
+         #buy_limit = all_avg * 0.975
+         #puts "Market is falling, not trading"
+    end
+    #(csticks.direction(2)=='down' || csticks.direction(2) == '-' || csticks.direction(1)=='down' || csticks.direction(1) == '-')
     #(previous1[:direction]=='down' && previous2[:direction]=='down' && previous1[:close]/previous2[:open] < 0.975) ||
     #(previous1[:direction]=='down' && previous2[:direction]=='down' && previous3[:direction]=='down' && previous1[:close]/previous3[:open] < 0.97)
-
-    ) &&
-        (csticks.direction(1) == 'up' && csticks.direction(0) == 'up')
-      result = {}
-      result[:open_price] = csticks.close * 1.0
-      result[:close_price] = csticks.close * 1.015
-      result[:cancel_price] = csticks.close * 0.985
-    end
   end
   result
 end
 
 
 def print_test_result(test_result, format = :full)
-  color = if test_result[:win_rate] > 0 then
+  color = if test_result[:total_gain] > 0 then
             ANSI.green
           else
             ANSI.red
@@ -123,7 +132,7 @@ def print_test_result(test_result, format = :full)
     puts "#{color}Results for market #{test_result[:market_label]} - rule: #{test_result[:rule]} #{ANSI.reset}"
 
   end
-  puts "#{color}Num wins: #{test_result[:wins]} - Num losts: #{test_result[:fails]} = score: #{test_result[:win_rate]}#{ANSI.reset}"
+  puts "#{color}Num wins: #{test_result[:wins]} - Num losts: #{test_result[:fails]} = score: #{test_result[:win_rate]} (+#{test_result[:waiting]} still waiting | +#{test_result[:discarded]} discarded)#{ANSI.reset}"
   puts "#{color}Gain: #{test_result[:total_gain]} (#{sprintf '%.2f', test_result[:total_gain]*100} %)#{ANSI.reset}"
   puts "#{color}-----------------------------------------------------#{ANSI.reset}"
 end
@@ -142,6 +151,7 @@ while loop_run do
     test_result = market_place.test_rule candlesticks, &rules.values.first
     test_result[:market_label] = market_label
     test_result[:rule] = rules.keys.first
+    market_place.export_to_csv("cs-#{market_label.tr('/','#')}-int#{@candlestick_interval_lenght}.csv", candlesticks)
 
     print_test_result test_result
     all_results << test_result

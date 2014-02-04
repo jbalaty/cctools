@@ -76,26 +76,28 @@ class CandleSticksHelper
   end
 
   def get_field(symbol)
-    @data.map{|i| i[symbol]}
+    @data.map { |i| i[symbol] }
   end
 
-
+  def previous_step_state(num_steps_backwards = 1)
+    CandleSticksHelper.new(@data.slice(0, @data.length-1))
+  end
 
 
   #experimental
   def are_dir_up(from, to)
     elements = get_last_elements_range(from, to)
-    elements.count{|i| i[:direction] == 'up'} == elements.length
+    elements.count { |i| i[:direction] == 'up' } == elements.length
   end
 
   def are_dir_down(from, to)
     elements = get_last_elements_range(from, to)
-    elements.count{|i| i[:direction] == 'down'} == elements.length
+    elements.count { |i| i[:direction] == 'down' } == elements.length
   end
 
   def are_dir_none(from, to)
     elements = get_last_elements_range(from, to)
-    elements.count{|i| i[:direction] == '-'} == elements.length
+    elements.count { |i| i[:direction] == '-' } == elements.length
   end
 
   private
@@ -103,7 +105,7 @@ class CandleSticksHelper
     if index == 0
       return @data.last
     elsif index > 0
-      return @data[-index]
+      return @data[-(index+1)]
     else
       raise "Index should be >= 0 and was #{index}"
     end

@@ -5,7 +5,6 @@ require_relative 'cryptsy/api'
 require_relative 'candle_sticks_helper'
 
 
-
 class MarketPlaceTool
   MarketPlaceName = 'Cryptsy'
 
@@ -131,13 +130,14 @@ class MarketPlaceTool
     position_cmds = []
     position_cmd = nil
     cmd_state = nil
-    candlesticks.each do |cs, index|
+    candlesticks.each do |cs|
       stack << cs
       unless position_cmd || cmd_state == :wait_buy
         position_cmd = yield CandleSticksHelper.new(stack)
         if position_cmd
           cmd_state = :wait_buy
           new_position = true
+          position_cmd[:created_index] = cs[:index]
           position_cmds << position_cmd
         end
       else
@@ -146,6 +146,8 @@ class MarketPlaceTool
           position_cmd = nil
         elsif cmd_state == :canceled
           position_cmd = nil
+        elsif cmd_state == :discarded
+          position_cmd = nil
         end
       end
       #prepare color
@@ -153,7 +155,7 @@ class MarketPlaceTool
       if new_position
         color = ANSI.red
       end
-      puts "#{ANSI.reset}#{format_dt cs[:interval_start]} - #{format_dt cs[:interval_end]} :: O:#{format_price cs[:open]}|C:#{format_price cs[:close]} || H:#{format_price cs[:high]}|L:#{format_price cs[:low]} (#{cs[:trades].length} trades)} #{ANSI.reset}"
+      puts "#{ANSI.reset}#{format_dt cs[:interval_start]} - #{format_dt cs[:interval_end]} :: O:#{format_price cs[:open]}|C:#{format_price cs[:close]} || H:#{format_price cs[:high]}|L:#{format_price cs[:low]} (#{cs[:trades].length} trades)| dir #{cs[:direction]}} #{ANSI.reset}"
       if new_position
         puts "#{color}New position command: " + position_cmd.inspect + ANSI.reset.to_s
       end
@@ -161,6 +163,7 @@ class MarketPlaceTool
 
     num_finished = position_cmds.count { |p| p[:resolution]==:finished }
     num_canceled = position_cmds.count { |p| p[:resolution]==:canceled }
+    num_discarded = position_cmds.count { |p| p[:resolution]==:discarded }
     num_waiting = position_cmds.count { |p| p[:resolution] == nil }
     position_cmds.each do |p|
       if p[:trade_close_price] && p[:trade_open_price]
@@ -173,32 +176,62 @@ class MarketPlaceTool
         wins: num_finished,
         fails: num_canceled,
         waiting: num_waiting,
+        discarded: num_discarded,
         win_rate: (num_finished - num_canceled),
         positions: position_cmds,
-        total_gain: position_cmds.map { |p| p[:gain] || 0 }.sum
+        total_gain: position_cmds.select{|p| p[:resolution]!=:discarded}.map { |p| p[:gain] || 0 }.sum
     }
   end
 
   def process_command(command, current_candlestick, state)
-    price = 0
-    if state == :wait_buy && (current_candlestick[:buy_low] || Float::MAX) <= command[:open_price] && current_candlestick[:quantity] > 0
+    if state == :wait_buy && current_candlestick[:index] - command[:created_index] > 2
+      #if buy command is not executed in the next round, cancel the command
+      state = :discarded
+      command[:trade_close_price] = command[:trade_open_price] = 0.0
+      command[:resolution] = :discarded
+      command[:running_max_close_price] = nil
+      puts "#{ANSI.blue}Canceling this command, it was not executed in the next round #{format_price command[:open_price]} (#{command.inspect})#{ANSI.reset}"
+    elsif state == :wait_buy && (current_candlestick[:buy_low] || Float::MAX) <= command[:open_price] && current_candlestick[:quantity] > 0
       state = :bought
       command[:trade_open_price] = command[:open_price]
+      command[:running_max_close_price] = current_candlestick[:close]
       puts "#{ANSI.blue}Activating command with price #{format_price command[:open_price]} | min:#{format_price current_candlestick[:buy_low]} (#{command.inspect})#{ANSI.reset}"
     elsif state == :bought
+      #if command[:close_price]
       if (current_candlestick[:sell_high] || Float::MIN) >= command[:close_price] && current_candlestick[:quantity] > 0
         state = :finished
         command[:trade_close_price] = command[:close_price]
         command[:resolution] = :finished
+        command[:running_max_close_price] = nil
         puts "#{ANSI.green}Finishing command with price #{format_price command[:close_price]} | max:#{format_price current_candlestick[:sell_high]} (#{command.inspect})#{ANSI.reset}"
+        gain = command[:trade_close_price] / command[:trade_open_price] - 1.0 - @cryptsy_transaction_fee
+        color = if gain>0
+                  ANSI.green
+                else
+                  ANSI.yellow
+                end
+        puts "#{color} Gain; #{sprintf '%0.2f', gain*100} % (buy price #{format_price command[:trade_open_price]} | sell price #{format_price command[:trade_close_price]}) #{ANSI.reset}"
+        #else
+        #  command[:close_price] = current_candlestick[:close]
+        #end
+      elsif command[:running_close_drop] && current_candlestick[:close] <= (command[:running_max_close_price] * command[:running_close_drop]) && current_candlestick[:quantity] > 0
+        command[:close_price] = current_candlestick[:close]*0.998
+        puts "#{ANSI.blue}Starting sellout procedure for #{format_price command[:close_price]} | max running close:#{format_price command[:running_max_close_price]} (#{command.inspect})#{ANSI.reset}"
+        command[:running_max_close_price] = nil
       elsif current_candlestick[:close] < command[:cancel_price]
         state = :canceled
         command[:trade_close_price] = current_candlestick[:close]
         command[:resolution] = :canceled
+        command[:running_max_close_price] = nil
         puts "#{ANSI.yellow}Canceling command with price #{format_price current_candlestick[:close]} (#{command.inspect})#{ANSI.reset}"
+        gain = command[:trade_close_price] / command[:trade_open_price] - 1.0 - @cryptsy_transaction_fee
+        puts "#{ANSI.yellow} Gain; #{sprintf '%0.2f', gain*100} % (buy price #{format_price command[:trade_open_price]} | sell price #{format_price command[:trade_close_price]}) #{ANSI.reset}"
+      else
+        command[:running_max_close_price] = [command[:running_max_close_price], current_candlestick[:close]].max
       end
     end
-    state
+
+    return state
   end
 
   def load_my_trades
@@ -276,7 +309,7 @@ class MarketPlaceTool
         open = close = high = low = buy_high = buy_low = sell_high = sell_low =last_cs[:close]
         quantity = 0
       end
-
+      cs[:index]=index
       cs[:open]=open
       cs[:close]=close
       cs[:high]=high
@@ -356,6 +389,74 @@ class MarketPlaceTool
     return position
   end
 
+  def export_to_csv(filename, candlesticks)
+    stack = []
+    CSV.open(filename, "wb") do |csv|
+      csv << ['index', 'start', 'end', '', 'open', 'close', 'high', 'low', '', 'num trades',
+              'quantity', 'direction', nil, 'MAVG5', 'MAVG12', 'MAVG25', 'MAVG40', 'MAVG50', 'MAVG60', 'MAVG80', 'MAVG100']
+      candlesticks.each do |cs|
+        record = []
+        record << cs[:index]
+        record << cs[:interval_start].to_s
+        record << cs[:interval_end].to_s
+        record << nil
+        record << cs[:open]
+        record << cs[:close]
+        record << cs[:high]
+        record << cs[:low]
+        record << nil
+        record << cs[:trades].length
+        record << cs[:quantity]
+        record << cs[:direction]
+        record << nil
+
+        stack << cs
+        cshelper = CandleSticksHelper.new(stack)
+        if cshelper.ensure_backlook(5)
+          record << cshelper.avg_close(5)
+        else
+          record << nil
+        end
+        if cshelper.ensure_backlook(12)
+          record << cshelper.avg_close(12)
+        else
+          record << nil
+        end
+        if cshelper.ensure_backlook(25)
+          record << cshelper.avg_close(25)
+        else
+          record << nil
+        end
+        if cshelper.ensure_backlook(40)
+          record << cshelper.avg_close(40)
+        else
+          record << nil
+        end
+        if cshelper.ensure_backlook(50)
+          record << cshelper.avg_close(50)
+        else
+          record << nil
+        end
+        if cshelper.ensure_backlook(60)
+          record << cshelper.avg_close(60)
+        else
+          record << nil
+        end
+        if cshelper.ensure_backlook(80)
+          record << cshelper.avg_close(80)
+        else
+          record << nil
+        end
+        if cshelper.ensure_backlook(100)
+          record << cshelper.avg_close(100)
+        else
+          record << nil
+        end
+
+        csv << record
+      end
+    end
+  end
 
 #def process(ltcmarkets, btcmarkets)
 #  ltc_x_btc = btcmarkets['LTC']
@@ -395,7 +496,6 @@ class MarketPlaceTool
   def format_dt(datetime)
     datetime.strftime "%Y-%m-%d %H:%M:%S"
   end
-
 
 
 end

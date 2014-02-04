@@ -85,7 +85,11 @@ while loop_run do
   end
 
   markets_of_interest.each do |market_label, settings|
-    market_place.load_market_trades(market_label, settings)
+    begin
+      market_place.load_market_trades(market_label, settings)
+    rescue
+      puts $!, $@
+    end
   end
   puts '-----------------------------------------------------------------'
   market_place.load_my_trades
