@@ -22,4 +22,4 @@ public/assets/*
 db/schema.rb
 .env
 .idea
-*.csv
+*.csv*

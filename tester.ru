@@ -98,7 +98,7 @@ rules[:rule_one_down_and_then_up_or_stable] = Proc.new do |csticks|
     mavg_long_prev = csticks.previous_step_state(1).avg_close min_stack_length
 
     #raising market price is above moving average
-    if csticks.close(0) > mavg_long && mavg_long > mavg_long_prev && csticks.close(0) >= (mavg_long + (mavg_long-mavg_medium).abs*55)
+    if csticks.close(0) > mavg_long && mavg_long > mavg_long_prev #&& csticks.close(0) >= (mavg_long + (mavg_long-mavg_medium).abs*55)
       if  (mavg_short> mavg_short_prev)
         #((csticks.direction(0) == 'up' || csticks.direction(0) == '-') && csticks.direction(1) == 'up') &&
         #(csticks.direction(1) == 'down' || csticks.direction(1) == '-')
