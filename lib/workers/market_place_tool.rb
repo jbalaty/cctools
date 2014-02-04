@@ -2,6 +2,8 @@
 require 'ansi/code'
 require 'csv'
 require_relative 'cryptsy/api'
+require_relative 'candle_sticks_helper'
+
 
 
 class MarketPlaceTool
@@ -132,7 +134,7 @@ class MarketPlaceTool
     candlesticks.each do |cs, index|
       stack << cs
       unless position_cmd || cmd_state == :wait_buy
-        position_cmd = yield stack
+        position_cmd = yield CandleSticksHelper.new(stack)
         if position_cmd
           cmd_state = :wait_buy
           new_position = true
@@ -394,8 +396,6 @@ class MarketPlaceTool
     datetime.strftime "%Y-%m-%d %H:%M:%S"
   end
 
-  def avg(arr)
-    arr.inject(0.0) { |sum, el| sum + el } / arr.size
-  end
+
 
 end

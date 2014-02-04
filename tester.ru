@@ -86,25 +86,26 @@ market_place = MarketPlaceTool.new(key, secret)
 last_market_refresh_time = GlobalValues.find_by_key('last_markets_refresh_time') || GlobalValues.new({'key' => 'last_markets_refresh_time', 'value' => (Time.now - 1.year).to_s})
 
 rules = {}
-rules[:rule_one_down_and_then_up_or_stable] = Proc.new do |candlestics|
+rules[:rule_one_down_and_then_up_or_stable] = Proc.new do |csticks|
   result = nil
-  if candlestics.length > 3
-    current = candlestics.last
-    previous1 = candlestics.fetch(-2)
-    previous2 = candlestics.fetch(-3)
-    previous3 = candlestics.fetch(-4)
+  if csticks.ensure_backlook 10
+    avg_o = csticks.avg_open
+    avg_c = csticks.avg_close
+    #buy_limit = csticks.min_close + (csticks.avg_close(10) - csticks.min_close) * 0.3
+    buy_limit = avg_c * 0.975
+    nothing=123
     if (
-    (previous1[:direction]=='down' || previous1[:direction] == '-'
-    #&& previous1[:close]/ previous1[:open] < 0.95) ||
+    (csticks.direction(2)=='down' || csticks.direction(2) == '-') &&
+        csticks.close(2) <= buy_limit
     #(previous1[:direction]=='down' && previous2[:direction]=='down' && previous1[:close]/previous2[:open] < 0.975) ||
     #(previous1[:direction]=='down' && previous2[:direction]=='down' && previous3[:direction]=='down' && previous1[:close]/previous3[:open] < 0.97)
-    )
+
     ) &&
-        (current[:direction] == 'up')
+        (csticks.direction(1) == 'up' && csticks.direction(0) == 'up')
       result = {}
-      result[:open_price] = current[:close] * 1.0
-      result[:close_price] = current[:close]*1.020
-      result[:cancel_price] = current[:close]*0.98
+      result[:open_price] = csticks.close * 1.0
+      result[:close_price] = csticks.close * 1.015
+      result[:cancel_price] = csticks.close * 0.985
     end
   end
   result
@@ -123,7 +124,7 @@ def print_test_result(test_result, format = :full)
 
   end
   puts "#{color}Num wins: #{test_result[:wins]} - Num losts: #{test_result[:fails]} = score: #{test_result[:win_rate]}#{ANSI.reset}"
-  puts "#{color}Gain: #{test_result[:total_gain]}#{ANSI.reset} (#{sprintf '%.2f', test_result[:total_gain]*100}%)"
+  puts "#{color}Gain: #{test_result[:total_gain]} (#{sprintf '%.2f', test_result[:total_gain]*100} %)#{ANSI.reset}"
   puts "#{color}-----------------------------------------------------#{ANSI.reset}"
 end
 
