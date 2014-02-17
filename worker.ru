@@ -8,7 +8,7 @@ require_relative 'lib/workers/market_place_tool'
 
 default_market_settings = {
     trades: {
-        ignore_total_lower_than: 0.0001 # dont store trades with very low volume of traded coins
+        ignore_total_lower_than: 0.0000 # dont store trades with very low volume of traded coins
     },
     ats: {# automatic trade system
           quantity: 100
@@ -77,16 +77,24 @@ loop_run = true
 while loop_run do
   loop_start = Time.now
   # refresh markets
-  refresh_markets = Market.all.length == 0 || (Time.now - last_market_refresh_time.get_datetime) > 60*60*12 # 12 hours
+  refresh_markets = Market.all.length == 0 || (Time.now - last_market_refresh_time.get_datetime) > 60*10 # 10 minutes
+  #refresh_markets = true
   if refresh_markets
     market_place.refresh_markets
     last_market_refresh_time.value = Time.now.to_s
     last_market_refresh_time.save!
   end
 
-  markets_of_interest.each do |market_label, settings|
+  #markets_of_interest.each do |k,v|
+  #  begin
+  #    market_place.load_market_trades(market_label, settings)
+  #  rescue
+  #    puts $!, $@
+  #  end
+  #end
+  Market.all.each do |market|
     begin
-      market_place.load_market_trades(market_label, settings)
+      market_place.load_market_trades(market.label, nil)
     rescue
       puts $!, $@
     end

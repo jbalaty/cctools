@@ -21,7 +21,8 @@ class MarketPlaceTool
     markets_items = do_request { @cryptsy.getmarkets }
     markets_items.each do |market_item|
       market = Market.find_by_marketid market_item['marketid']
-      filtered_mi = market_item.select { |k| ['marketid', 'label', 'primary_currency_code', 'secondary_currency_code'].include?(k) }
+      filtered_mi = market_item.select { |k| ['marketid', 'label', 'primary_currency_code', 'primary_currency_name',
+                                              'secondary_currency_code', 'secondary_currency_name'].include?(k) }
       unless market
         puts "Creating new market #{filtered_mi['label']}"
         market = Market.new filtered_mi
@@ -29,6 +30,7 @@ class MarketPlaceTool
         puts "Updating market #{filtered_mi['label']}"
         market.update filtered_mi
       end
+      market.state = 'active'
       market.save!
     end
     puts '-----------------------------------------------------------------'
@@ -84,6 +86,9 @@ class MarketPlaceTool
   end
 
   def load_market_trades(market_label, market_settings)
+    market_settings ||= {
+        trades: {ignore_total_lower_than: 0.0}
+    }
     market = Market.find_by_label market_label
     min_total = market_settings[:trades][:ignore_total_lower_than]
     if market
@@ -125,6 +130,27 @@ class MarketPlaceTool
     end
   end
 
+  def load_market_orders(market_label)
+    market = Market.find_by_label market_label
+    if market
+      market_id = market['marketid']
+      puts "Loading market orders for #{market_label} - marketid = #{market_id}"
+      market_orders = do_request { @cryptsy.marketorders(market_id) }
+      puts "Processing market trades #{market_orders.length}"
+      market_orders.each do |mo|
+        #puts "Storing new market trade ID=#{mt['tradeid']} - #{mt['initiate_ordertype']}"
+        market_order = MarketOrder.new mo
+        market.market_orders << market_order
+        new_orders_counter += 1
+      end
+      puts "Num market orders for #{market_label} - #{market_orders.length}"
+      market.save!
+    else
+      puts "Cannot find marketid for #{market_label}"
+    end
+  end
+
+
   def test_rule(candlesticks, &block)
     stack = []
     position_cmds = []
@@ -155,7 +181,7 @@ class MarketPlaceTool
       if new_position
         color = ANSI.red
       end
-      puts "#{ANSI.reset}#{format_dt cs[:interval_start]} - #{format_dt cs[:interval_end]} :: O:#{format_price cs[:open]}|C:#{format_price cs[:close]} || H:#{format_price cs[:high]}|L:#{format_price cs[:low]} (#{cs[:trades].length} trades)| dir #{cs[:direction]}} #{ANSI.reset}"
+      puts "#{ANSI.reset}#{format_dt cs[:interval_start]} - #{format_dt cs[:interval_end]} ::O:#{format_price cs[:open]}|C:#{format_price cs[:close]} || H:#{format_price cs[:high]}|L:#{format_price cs[:low]} | BL:#{format_price cs[:buy_low]}|SH:BL:#{format_price cs[:sell_high]} (#{cs[:trades].length} trades)| dir #{cs[:direction]}} #{ANSI.reset}"
       if new_position
         puts "#{color}New position command: " + position_cmd.inspect + ANSI.reset.to_s
       end
@@ -179,7 +205,7 @@ class MarketPlaceTool
         discarded: num_discarded,
         win_rate: (num_finished - num_canceled),
         positions: position_cmds,
-        total_gain: position_cmds.select{|p| p[:resolution]!=:discarded}.map { |p| p[:gain] || 0 }.sum
+        total_gain: position_cmds.select { |p| p[:resolution]!=:discarded }.map { |p| p[:gain] || 0 }.sum
     }
   end
 
@@ -197,8 +223,8 @@ class MarketPlaceTool
       command[:running_max_close_price] = current_candlestick[:close]
       puts "#{ANSI.blue}Activating command with price #{format_price command[:open_price]} | min:#{format_price current_candlestick[:buy_low]} (#{command.inspect})#{ANSI.reset}"
     elsif state == :bought
-      #if command[:close_price]
-      if (current_candlestick[:sell_high] || Float::MIN) >= command[:close_price] && current_candlestick[:quantity] > 0
+      if command[:close_price] && command[:running_close_drop] == nil &&
+          (current_candlestick[:sell_high] || Float::MIN) >= command[:close_price] && current_candlestick[:quantity] > 0
         state = :finished
         command[:trade_close_price] = command[:close_price]
         command[:resolution] = :finished
@@ -218,6 +244,7 @@ class MarketPlaceTool
         command[:close_price] = current_candlestick[:close]*0.998
         puts "#{ANSI.blue}Starting sellout procedure for #{format_price command[:close_price]} | max running close:#{format_price command[:running_max_close_price]} (#{command.inspect})#{ANSI.reset}"
         command[:running_max_close_price] = nil
+        command[:running_close_drop] = nil
       elsif current_candlestick[:close] < command[:cancel_price]
         state = :canceled
         command[:trade_close_price] = current_candlestick[:close]
@@ -338,7 +365,7 @@ class MarketPlaceTool
     return candlesticks
   end
 
-  def delete_old_market_trades(minutes = 60*24*7) # older than one week
+  def delete_old_market_trades(minutes = 60*24*1) # older than 2 days
     cryptsy_time = Time.now + @cryptsy_timeshift - minutes.minutes
     puts "Deleting market trades older than #{minutes} minutes => #{sprintf '%.3f', minutes/60.0/24.0} days (< cryptsy time: #{cryptsy_time})"
     MarketTrade.delete_all(['datetime < ?', cryptsy_time])
@@ -392,8 +419,8 @@ class MarketPlaceTool
   def export_to_csv(filename, candlesticks)
     stack = []
     CSV.open(filename, "wb") do |csv|
-      csv << ['index', 'start', 'end', '', 'open', 'close', 'high', 'low', '', 'num trades',
-              'quantity', 'direction', nil, 'MAVG5', 'MAVG12', 'MAVG25', 'MAVG40', 'MAVG50', 'MAVG60', 'MAVG80', 'MAVG100']
+      csv << ['index', 'start', 'end', nil, 'open', 'close', 'high', 'low', 'sell high', 'buy low', nil, 'num trades',
+              'quantity', 'direction', nil, 'MAVG5', 'MAVG9', 'MAVG13', 'MAVG19', 'MAVG25', 'MAVG40', 'MAVG50', 'MAVG60', 'MAVG80', 'MAVG100']
       candlesticks.each do |cs|
         record = []
         record << cs[:index]
@@ -404,6 +431,8 @@ class MarketPlaceTool
         record << cs[:close]
         record << cs[:high]
         record << cs[:low]
+        record << cs[:sell_high]
+        record << cs[:buy_low]
         record << nil
         record << cs[:trades].length
         record << cs[:quantity]
@@ -417,8 +446,18 @@ class MarketPlaceTool
         else
           record << nil
         end
-        if cshelper.ensure_backlook(12)
-          record << cshelper.avg_close(12)
+        if cshelper.ensure_backlook(9)
+          record << cshelper.avg_close(9)
+        else
+          record << nil
+        end
+        if cshelper.ensure_backlook(13)
+          record << cshelper.avg_close(13)
+        else
+          record << nil
+        end
+        if cshelper.ensure_backlook(19)
+          record << cshelper.avg_close(19)
         else
           record << nil
         end
@@ -490,7 +529,10 @@ class MarketPlaceTool
   end
 
   def format_price(price)
-    sprintf '%.8f', price
+    if price
+      return sprintf '%.10f', price
+    end
+    return ''
   end
 
   def format_dt(datetime)

@@ -1,4 +1,15 @@
 Cctools::Application.routes.draw do
+
+  #constraints(:host => /sledovani-realit.com/) do
+  #  match '/', :to => redirect("http://www.sledovani-realit.cz"), via: :all
+  #  match '/*path', :to => redirect {|params| "http://www.sledovani-realit.cz/#{params[:path]}"}, via: :all
+  #end
+
+  namespace :api, :defaults => {format: :json} do
+    resources :markets
+    resources :market_trades, path: 'marketTrades'
+  end
+
   # The priority is based upon order of creation: first created -> highest priority.
   # See how all your routes lay out with "rake routes".
 
