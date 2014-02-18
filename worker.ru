@@ -62,6 +62,7 @@ markets_of_interest = markets_settings.select { |key| markets_filter.include? ke
 markets_of_interest.each { |k, v| puts "Market settings for #{k}: #{v.inspect}" }
 
 @sleep_time = 30 #seconds
+@thread_sleep_time = 10 #seconds
 program_start = Time.now
 key=Cctools::Application.config.cryptsy_key
 secret=Cctools::Application.config.cryptsy_secret
@@ -71,10 +72,22 @@ end
 market_place = MarketPlaceTool.new(key, secret)
 last_market_refresh_time = GlobalValues.find_by_key('last_markets_refresh_time') || GlobalValues.new({'key' => 'last_markets_refresh_time', 'value' => (Time.now - 1.year).to_s})
 
+def on_signal
+  puts "Getting some of INT/HUP/QUIT signals => joining all market threads"
+  @threads.each do |thread|
+    thread.join
+  end
+end
+
 # main program loop
+@start_market_threads = true
 puts '-----------------------------------------------------------------'
 loop_run = true
 while loop_run do
+  trap("INT") { on_signal }
+  trap("HUP") { on_signal }
+  trap("QUIT") { on_signal }
+  trap("TERM") { on_signal }
   loop_start = Time.now
   # refresh markets
   refresh_markets = Market.all.length == 0 || (Time.now - last_market_refresh_time.get_datetime) > 60*10 # 10 minutes
@@ -85,25 +98,36 @@ while loop_run do
     last_market_refresh_time.save!
   end
 
-  #markets_of_interest.each do |k,v|
-  #  begin
-  #    market_place.load_market_trades(market_label, settings)
-  #  rescue
-  #    puts $!, $@
-  #  end
-  #end
-  Market.all.each do |market|
-    begin
-      market_place.load_market_trades(market.label, nil)
-    rescue
-      puts $!, $@
+  if @start_market_threads
+    markets = Market.all.take(20)
+    puts "Starting #{markets.length} market threads"
+    @threads = []
+    markets.map { |m| m.label }.each do |label|
+      @threads << Thread.new do
+        puts "Starting new thread for market #{label} (num created threads: #{@threads.length})"
+        while (true) do
+          begin
+            market_place.load_market_orders(label)
+            market_place.load_market_trades(label, nil)
+            puts "Sleeping thread of #{label} market for #{@thread_sleep_time} secs"
+            sleep(@thread_sleep_time)
+          rescue
+            puts $!, $@
+          end
+        end
+      end
+      #pause before spawning new thread
+      sleep(3.3)
     end
+    @start_market_threads = false
   end
+
+
   puts '-----------------------------------------------------------------'
   market_place.load_my_trades
   market_place.process_orders
-
   market_place.delete_old_market_trades
+
 
   loop_time = Time.now - loop_start
   puts "Loop time: #{loop_time} seconds"

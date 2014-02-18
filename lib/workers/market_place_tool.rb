@@ -96,7 +96,7 @@ class MarketPlaceTool
       puts "Loading market trades for #{market_label} - marketid = #{market_id}"
       market_trades = do_request { @cryptsy.markettrades(market_id) }
       new_trades_counter = 0
-      puts "Processing market trades #{market_trades.length}"
+      puts "Processing market #{market_label} trades #{market_trades.length}"
       market_trades.each do |mt|
         if mt['total'].to_f >= min_total
           market_trade = MarketTrade.find_by_tradeid mt['tradeid']
@@ -113,7 +113,7 @@ class MarketPlaceTool
           puts "Ignoring this trade (total #{mt['total']} < min total #{sprintf('%.8f', min_total)}) BTC"
         end
       end
-      puts "#{new_trades_counter}/#{market_trades.length} new market trades"
+      puts "#{new_trades_counter}/#{market_trades.length} new market trades in #{market_label}"
       market.save!
     else
       puts "Cannot find marketid for #{market_label}"
@@ -135,15 +135,30 @@ class MarketPlaceTool
     if market
       market_id = market['marketid']
       puts "Loading market orders for #{market_label} - marketid = #{market_id}"
-      market_orders = do_request { @cryptsy.marketorders(market_id) }
-      puts "Processing market trades #{market_orders.length}"
-      market_orders.each do |mo|
+      market_orders_result = do_request { @cryptsy.marketorders(market_id) }
+      MarketOrder.destroy_all("marketid='#{market_id}'")
+      puts "Processing market #{market_label} sell orders #{market_orders_result['sellorders'].length}"
+      market_orders_result['sellorders'].each do |mo|
         #puts "Storing new market trade ID=#{mt['tradeid']} - #{mt['initiate_ordertype']}"
-        market_order = MarketOrder.new mo
+        market_order = MarketOrder.new
+        market_order.marketid = market_id
+        market_order.order_type = 'Sell'
+        market_order.price = mo['sellprice']
+        market_order.quantity = mo['quantity']
+        market_order.total = mo['total']
         market.market_orders << market_order
-        new_orders_counter += 1
       end
-      puts "Num market orders for #{market_label} - #{market_orders.length}"
+      puts "Processing market #{market_label} buy orders #{market_orders_result['sellorders'].length}"
+      market_orders_result['buyorders'].each do |mo|
+        #puts "Storing new market trade ID=#{mt['tradeid']} - #{mt['initiate_ordertype']}"
+        market_order = MarketOrder.new
+        market_order.marketid = market_id
+        market_order.order_type = 'Buy'
+        market_order.price = mo['buyprice']
+        market_order.quantity = mo['quantity']
+        market_order.total = mo['total']
+        market.market_orders << market_order
+      end
       market.save!
     else
       puts "Cannot find marketid for #{market_label}"
