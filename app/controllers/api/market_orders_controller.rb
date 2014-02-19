@@ -7,7 +7,7 @@ class Api::MarketOrdersController < ApplicationController
   end
 
   def index
-    @market_orders = MarketOrder.where('marketid=?', params['marketid'])
+    @market_orders = MarketOrder.where(params.permit(:marketid, :order_type))
     @sellorders = []
     @buyorders = []
     @market_orders.each do |mo|
