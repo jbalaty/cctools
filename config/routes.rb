@@ -1,7 +1,5 @@
 Cctools::Application.routes.draw do
 
-  resources :market_orders
-
   #constraints(:host => /sledovani-realit.com/) do
   #  match '/', :to => redirect("http://www.sledovani-realit.cz"), via: :all
   #  match '/*path', :to => redirect {|params| "http://www.sledovani-realit.cz/#{params[:path]}"}, via: :all
@@ -11,6 +9,8 @@ Cctools::Application.routes.draw do
     resources :markets
     resources :market_trades, path: 'marketTrades'
     resources :market_orders, path: 'marketOrders'
+    resources :candlesticks
+    resources :feedbacks
   end
 
   # The priority is based upon order of creation: first created -> highest priority.
@@ -53,7 +53,7 @@ Cctools::Application.routes.draw do
   #       get 'recent', on: :collection
   #     end
   #   end
-  
+
   # Example resource route with concerns:
   #   concern :toggleable do
   #     post 'toggle'

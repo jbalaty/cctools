@@ -1,7 +1,8 @@
 class CreateCandlesticks < ActiveRecord::Migration
   def change
     create_table :candlesticks do |t|
-      t.string :market_label
+      t.belongs_to :market
+      t.string :marketid
       t.datetime :interval_start
       t.datetime :interval_end
       t.integer :interval_seconds
@@ -13,6 +14,7 @@ class CreateCandlesticks < ActiveRecord::Migration
       t.decimal :volume_sell
       t.integer :num_buy_trades
       t.integer :num_sell_trades
+      t.string :direction, length: 1
       #t.decimal :high_buy
       #t.decimal :high_sell
       #t.decimal :low_buy
@@ -20,5 +22,11 @@ class CreateCandlesticks < ActiveRecord::Migration
 
       t.timestamps
     end
+
+    add_index :candlesticks, :market_id
+    add_index :candlesticks, :marketid
+    add_index :candlesticks, :interval_start
+    add_index :candlesticks, :interval_end
+    add_index :candlesticks, :interval_seconds
   end
 end

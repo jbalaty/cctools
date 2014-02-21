@@ -12,7 +12,9 @@ class CreateMarketOrders < ActiveRecord::Migration
     end
 
     add_index :market_orders, :marketid
+    add_index :market_orders, :market_id
     add_index :market_trades, :marketid
+    add_index :market_trades, :market_id
 
   end
 end

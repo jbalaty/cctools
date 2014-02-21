@@ -74,9 +74,12 @@ last_market_refresh_time = GlobalValues.find_by_key('last_markets_refresh_time')
 
 def on_signal
   puts "Getting some of INT/HUP/QUIT signals => joining all market threads"
-  @threads.each do |thread|
-    thread.join
+  @threads.each_index do |index|
+    puts "Trying to end exit thread #{index}"
+    thread = @threads[index]
+    thread.exit
   end
+  exit
 end
 
 # main program loop
@@ -90,7 +93,7 @@ while loop_run do
   trap("TERM") { on_signal }
   loop_start = Time.now
   # refresh markets
-  refresh_markets = Market.all.length == 0 || (Time.now - last_market_refresh_time.get_datetime) > 60*10 # 10 minutes
+  refresh_markets = Market.all.length == 0 || (Time.now - last_market_refresh_time.get_datetime) > 60*60 # 1 hour
   #refresh_markets = true
   if refresh_markets
     market_place.refresh_markets
@@ -99,7 +102,7 @@ while loop_run do
   end
 
   if @start_market_threads
-    markets = Market.all.take(20)
+    markets = Market.all
     puts "Starting #{markets.length} market threads"
     @threads = []
     markets.map { |m| m.label }.each do |label|
@@ -109,6 +112,8 @@ while loop_run do
           begin
             market_place.load_market_orders(label)
             market_place.load_market_trades(label, nil)
+            market_place.processs_market_trades(label)
+            market_place.collapse_candlesticks(label, 60, 900)
             puts "Sleeping thread of #{label} market for #{@thread_sleep_time} secs"
             sleep(@thread_sleep_time)
           rescue
@@ -122,11 +127,14 @@ while loop_run do
     @start_market_threads = false
   end
 
-
-  puts '-----------------------------------------------------------------'
-  market_place.load_my_trades
-  market_place.process_orders
-  market_place.delete_old_market_trades
+  begin
+    puts '-----------------------------------------------------------------'
+    market_place.load_my_trades
+    market_place.process_orders
+    market_place.delete_old_market_trades
+  rescue
+    puts $!, $@
+  end
 
 
   loop_time = Time.now - loop_start

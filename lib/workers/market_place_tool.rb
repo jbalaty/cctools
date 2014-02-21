@@ -43,9 +43,9 @@ class MarketPlaceTool
       min_sell_quantity = 1000
       min_buy_quantity = 2000
       if market
-        market_id = market['marketid']
-        puts "Loading market order for #{key} - marketid = #{market_id}"
-        market_orders = do_request { @cryptsy.marketorders(market_id) }
+        marketid = market['marketid']
+        puts "Loading market order for #{key} - marketid = #{marketid}"
+        market_orders = do_request { @cryptsy.marketorders(marketid) }
         filtered_sell_orders = market_orders['sellorders'].select { |item| item['quantity'].to_f > min_sell_quantity }
         filtered_buy_orders = market_orders['buyorders'].select { |item| item['quantity'].to_f > min_buy_quantity }
 
@@ -92,18 +92,17 @@ class MarketPlaceTool
     market = Market.find_by_label market_label
     min_total = market_settings[:trades][:ignore_total_lower_than]
     if market
-      market_id = market['marketid']
-      puts "Loading market trades for #{market_label} - marketid = #{market_id}"
-      market_trades = do_request { @cryptsy.markettrades(market_id) }
+      marketid = market['marketid']
+      puts "Loading market trades for #{market_label} - marketid = #{marketid}"
+      market_trades = do_request { @cryptsy.markettrades(marketid) }
       new_trades_counter = 0
       puts "Processing market #{market_label} trades #{market_trades.length}"
       market_trades.each do |mt|
         if mt['total'].to_f >= min_total
           market_trade = MarketTrade.find_by_tradeid mt['tradeid']
           unless market_trade
-            #puts "Storing new market trade ID=#{mt['tradeid']} - #{mt['initiate_ordertype']}"
             market_trade = MarketTrade.new mt
-            market_trade.marketid=market_id
+            market_trade.marketid=marketid
             market.market_trades << market_trade
             new_trades_counter += 1
           else
@@ -117,6 +116,51 @@ class MarketPlaceTool
       market.save!
     else
       puts "Cannot find marketid for #{market_label}"
+    end
+  end
+
+
+  def processs_market_trades(market_label, settings = nil)
+    settings ||= {
+
+    }
+    market = Market.find_by_label market_label
+    if market
+      marketid = market['marketid']
+      puts "Generating candlesticks from market trades for #{market_label} - marketid = #{marketid}"
+      existing_csticks = Candlestick.where('marketid=? AND interval_seconds=60', marketid).order('interval_start desc')
+      last_complete_stick_end = Time.now - 1.day + @cryptsy_timeshift
+      if (existing_csticks.length>1)
+        last_complete_stick_end = existing_csticks.second()['interval_end']
+      end
+      input_trades = MarketTrade.where('marketid=? AND datetime>=?', marketid, last_complete_stick_end).order('datetime asc')
+      if input_trades.length > 0
+        csticks60 = generate_candlesticks(input_trades, 60)
+        store_candlesticks(market, csticks60, 60)
+      end
+    end
+  end
+
+  def collapse_candlesticks(market_label, from_interval_seconds, to_interval_seconds)
+    if to_interval_seconds <= from_interval_seconds
+      raise ArgumentError('To interval should be higher and multiple of from interval')
+    end
+    if to_interval_seconds % from_interval_seconds != 0
+      raise ArgumentError('To interval should be higher and multiple of from interval')
+    end
+    market = Market.find_by label: market_label
+    if market
+      existing_csticks = Candlestick.where('marketid=? AND interval_seconds=?', market.marketid, to_interval_seconds).order('interval_start desc')
+      last_complete_stick_end = Time.now - 10.day + @cryptsy_timeshift
+      if existing_csticks.length>1
+        last_complete_stick_end = existing_csticks.second()['interval_end']
+      end
+      from_csticks = Candlestick.where('marketid=? AND interval_seconds=? AND interval_start>=?',
+                                       market.marketid, from_interval_seconds, last_complete_stick_end).order('interval_start asc')
+      if (from_csticks.length>0)
+        to_csticks = generate_candlesticks_from_candlesticks(from_csticks, to_interval_seconds)
+        store_candlesticks(market, to_csticks, to_interval_seconds)
+      end
     end
   end
 
@@ -327,6 +371,7 @@ class MarketPlaceTool
       candlesticks[index] = candlesticks[index] || {trades: []}
       candlesticks[index][:interval_start] = dt_first + (index*length_secs).seconds
       candlesticks[index][:interval_end] = candlesticks[index][:interval_start] + length_secs.seconds
+      candlesticks[index][:interval_seconds] = length_secs.seconds
     end
     # trim empty intervals from start of the array
     while candlesticks.first == nil || candlesticks.first[:trades].length == 0
@@ -347,9 +392,11 @@ class MarketPlaceTool
         buy_low = cs[:trades].select { |i| i['initiate_ordertype']=='Buy' }.map { |i| i['tradeprice'].to_f }.min
         sell_high = cs[:trades].select { |i| i['initiate_ordertype']=='Sell' }.map { |i| i['tradeprice'].to_f }.max
         sell_low = cs[:trades].select { |i| i['initiate_ordertype']=='Sell' }.map { |i| i['tradeprice'].to_f }.min
+        volume_buy = cs[:trades].select { |i| i['initiate_ordertype']=='Buy' }.map { |i| i['quantity'].to_f }.sum
+        volume_sell = cs[:trades].select { |i| i['initiate_ordertype']=='Sell' }.map { |i| i['quantity'].to_f }.sum
       else
         open = close = high = low = buy_high = buy_low = sell_high = sell_low =last_cs[:close]
-        quantity = 0
+        quantity = volume_buy = volume_sell = 0
       end
       cs[:index]=index
       cs[:open]=open
@@ -361,16 +408,15 @@ class MarketPlaceTool
       cs[:buy_low]=buy_low
       cs[:sell_high]=sell_high
       cs[:sell_low]=sell_low
+      cs[:volume_buy]= volume_buy
+      cs[:volume_sell]=volume_sell
       #t_start = (dt_first + (index*length_secs).seconds) #.strftime("%H:%M")
       #t_end = (t_start + length_secs) #.strftime("%H:%M")
-      #cs[:interval_start]=t_start
-      #cs[:interval_end]=t_end
-
       #computed properties
       cs[:direction]= if open < close then
-                        'up'
+                        'U'
                       elsif close < open
-                        'down'
+                        'D'
                       else
                         '-'
                       end
@@ -512,27 +558,6 @@ class MarketPlaceTool
     end
   end
 
-#def process(ltcmarkets, btcmarkets)
-#  ltc_x_btc = btcmarkets['LTC']
-#  ltcmarkets.each do |key, value|
-#    curr_x_ltc = value
-#    curr_x_btc = btcmarkets[key]
-#    unless curr_x_btc
-#      puts "Related #{key}/BTC market does not exists"
-#    else
-#      puts "Processing #{key}/LTC markets"
-#      result_raw = 1.01/curr_x_btc['buyprice']*curr_x_ltc['sellprice']*ltc_x_btc['buyprice'];
-#      result_real = result_raw * 0.998 ** 3 # result * 3 times cryptsy transaction fee = 0.2%
-#      if result_real > 1.0
-#        color = ANSI.reset
-#        puts sprintf(color+"Resulting earning for #{key}/LTC: %0.3f%% (without fees: %0.3f%%)"+ANSI.reset, result_real*100-100, result_raw*100-100)
-#        puts sprintf(color+"1BTC => #{key}/BTC (B:%0.10f|S:%0.10f) => #{key}/LTC (B:%0.10f|S:%0.10f) => LTC/BTC (B:%0.10f|S:%0.10f)"+ANSI.reset,
-#                     curr_x_btc['buyprice'], curr_x_btc['sellprice'], curr_x_ltc['buyprice'], curr_x_ltc['sellprice'], ltc_x_btc['buyprice'], ltc_x_btc['sellprice'])
-#      end
-#    end
-#  end
-#end
-
   private
   def do_request(response_key = 'return')
     response = yield
@@ -554,5 +579,108 @@ class MarketPlaceTool
     datetime.strftime "%Y-%m-%d %H:%M:%S"
   end
 
+  def store_candlesticks(market, candlesticks, interval_seconds = 60)
+    num_new = 0
+    num_old = 0
+    candlesticks.each do |cstick|
+      if (cstick[:interval_seconds]!= interval_seconds)
+        raise Error("Candlestick interval #{cstick[:interval_seconds]} != requested interval #{interval_seconds}")
+      end
+      conditions = cstick.select { |k| [:interval_start, :interval_end, :interval_seconds].include?(k) }
+      existing_cstick = Candlestick.where(conditions)
+      record = nil
 
+      if existing_cstick.length == 0
+        record = Candlestick.new
+        market.candlesticks << record
+        num_new += 1
+      else
+        # we have to update some old cs, because the last one stored is still open
+        record = existing_cstick.first
+        num_old += 1
+      end
+      values = cstick.select { |k| [:interval_start, :interval_end, :interval_seconds, :open, :close, :high, :low,
+                                    :volume_buy, :volume_sell, :direction].include?(k) }
+      record.update values
+      record.marketid = market.marketid
+      record.save!
+    end
+    puts "Storing new candlesticks for market #{market.label} (interval #{interval_seconds}) (new: #{num_new} / updated: #{num_old})"
+    market.save!
+  end
+
+
+  def generate_candlesticks_from_candlesticks(input_candlesticks, length_secs = 60)
+    puts "Generating candlesticks from input candlesticks (num of candlesticks: #{input_candlesticks.length}) interval lenght: #{length_secs} seconds (#{length_secs/60.0} minutes)"
+    dt_first = input_candlesticks.first['interval_start'].change(min: 0)
+    candlesticks = []
+    # divide trades into intervals
+    input_candlesticks.each do |t|
+      dt = t['interval_start']
+      secs = dt - dt_first
+      group = (secs / length_secs).to_i
+      cs = candlesticks[group]
+      unless cs
+        cs = candlesticks[group] = {trades: []}
+      end
+      cs[:trades] << t
+
+    end
+    # fill gaps (some intervals can be empty) and compute start/end
+    candlesticks.each_index do |index|
+      candlesticks[index] = candlesticks[index] || {trades: []}
+      candlesticks[index][:interval_start] = dt_first + (index*length_secs).seconds
+      candlesticks[index][:interval_end] = candlesticks[index][:interval_start] + length_secs.seconds
+      candlesticks[index][:interval_seconds] = length_secs.seconds
+    end
+    # trim empty intervals from start of the array
+    while candlesticks.first == nil || candlesticks.first[:trades].length == 0
+      candlesticks.shift
+    end
+
+    # compute OHCL
+    last_cs = candlesticks.first
+    candlesticks.each_index do |index|
+      cs = candlesticks[index]
+      unless cs[:trades].empty?
+        open = cs[:trades].first['open'].to_f
+        close = cs[:trades].last['close'].to_f
+        high = cs[:trades].map { |i| i['high'].to_f }.max
+        low = cs[:trades].map { |i| i['low'].to_f }.min
+        quantity = cs[:trades].map { |i| i['quantity'].to_f }.sum
+        buy_high = cs[:trades].map { |i| i['buy_high'].to_f }.max
+        buy_low = cs[:trades].map { |i| i['buy_low'].to_f }.min
+        sell_high = cs[:trades].map { |i| i['sell_high'].to_f }.max
+        sell_low = cs[:trades].map { |i| i['sell_low'].to_f }.min
+        volume_buy = cs[:trades].map { |i| i['volume_buy'].to_f }.sum
+        volume_sell = cs[:trades].map { |i| i['volume_sell'].to_f }.sum
+      else
+        open = close = high = low = buy_high = buy_low = sell_high = sell_low =last_cs[:close]
+        quantity = volume_buy = volume_sell = 0
+      end
+      cs[:index]=index
+      cs[:open]=open
+      cs[:close]=close
+      cs[:high]=high
+      cs[:low]=low
+      cs[:quantity]=quantity
+      cs[:buy_high]=buy_high
+      cs[:buy_low]=buy_low
+      cs[:sell_high]=sell_high
+      cs[:sell_low]=sell_low
+      cs[:volume_buy]= volume_buy
+      cs[:volume_sell]=volume_sell
+      #computed properties
+      cs[:direction]= if open < close then
+                        'U'
+                      elsif close < open
+                        'D'
+                      else
+                        '-'
+                      end
+
+      last_cs = cs
+    end
+    return candlesticks
+  end
 end

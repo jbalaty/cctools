@@ -51,3 +51,4 @@ gem 'ansi'
 gem 'slop'
 
 gem 'active_model_serializers'
+gem 'rack-cors'
