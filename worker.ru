@@ -102,7 +102,7 @@ while loop_run do
   end
 
   if @start_market_threads
-    markets = Market.all
+    markets = Market.all.take(1000)
     puts "Starting #{markets.length} market threads"
     @threads = []
     markets.map { |m| m.label }.each do |label|
@@ -132,6 +132,8 @@ while loop_run do
     market_place.load_my_trades
     market_place.process_orders
     market_place.delete_old_market_trades
+    market_place.delete_old_candlesticks(30, 6) # 30secs intervals, that are older than 6 hours
+    market_place.delete_old_candlesticks(900, 48) # 15mins intervals, that are older than 2 days
   rescue
     puts $!, $@
   end

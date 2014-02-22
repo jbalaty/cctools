@@ -164,6 +164,12 @@ class MarketPlaceTool
     end
   end
 
+  def delete_old_candlesticks(interval_seconds, older_than_hours)
+    cryptsy_time = Time.now + @cryptsy_timeshift - older_than_hours.hours
+    puts "Deleting candlesticks #{interval_seconds} older than #{older_than_hours} hours => #{sprintf '%.3f', 24.0} days (< cryptsy time: #{cryptsy_time})"
+    Candlestick.delete_all(['interval_seconds=? AND interval_end < ?', interval_seconds, cryptsy_time])
+  end
+
   def get_trades(market_label, from, to = Time.now+1.hour)
     market = Market.find_by_label market_label
     if market
