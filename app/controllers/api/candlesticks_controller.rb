@@ -8,7 +8,7 @@ class Api::CandlesticksController < ApplicationController
 
   def index
     filtered_params = params.permit(:marketid, :interval_seconds)
-    if filtered_params[:interval_seconds].to_i == 30
+    if filtered_params[:interval_seconds].to_i == 60
       filtered_params[:interval_start] = Time.now - 6.hours
     elsif filtered_params[:interval_seconds].to_i == 900
       filtered_params[:interval_start] = Time.now - 1.day

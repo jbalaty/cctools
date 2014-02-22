@@ -150,6 +150,7 @@ class MarketPlaceTool
     end
     market = Market.find_by label: market_label
     if market
+      puts "Generating candlesticks #{to_interval_seconds} secs from lower candlesticks #{from_interval_seconds} secs for market #{market.label}"
       existing_csticks = Candlestick.where('marketid=? AND interval_seconds=?', market.marketid, to_interval_seconds).order('interval_start desc')
       last_complete_stick_end = Time.now - 10.day + @cryptsy_timeshift
       if existing_csticks.length>1
@@ -166,7 +167,7 @@ class MarketPlaceTool
 
   def delete_old_candlesticks(interval_seconds, older_than_hours)
     cryptsy_time = Time.now + @cryptsy_timeshift - older_than_hours.hours
-    puts "Deleting candlesticks #{interval_seconds} older than #{older_than_hours} hours => #{sprintf '%.3f', 24.0} days (< cryptsy time: #{cryptsy_time})"
+    puts "Deleting candlesticks #{interval_seconds} older than #{older_than_hours} hours => #{sprintf '%.3f', older_than_hours / 24.0} days (< cryptsy time: #{cryptsy_time})"
     Candlestick.delete_all(['interval_seconds=? AND interval_end < ?', interval_seconds, cryptsy_time])
   end
 
@@ -608,10 +609,14 @@ class MarketPlaceTool
       values = cstick.select { |k| [:interval_start, :interval_end, :interval_seconds, :open, :close, :high, :low,
                                     :volume_buy, :volume_sell, :direction].include?(k) }
       record.update values
+      record.market_id = market.id
       record.marketid = market.marketid
+      if (record.market_id==2 && record.marketid=='141') || (record.market_id==1 && record.marketid=='57')
+        puts "Storing candlestick for market_id=#{market.id}|marketid=#{market.marketid} - interval #{interval_seconds}"
+      end
       record.save!
     end
-    puts "Storing new candlesticks for market #{market.label} (interval #{interval_seconds}) (new: #{num_new} / updated: #{num_old})"
+    puts "Storing new candlesticks for market #{market.label}/marketid: #{market.marketid} (interval #{interval_seconds}) (new: #{num_new} / updated: #{num_old})"
     market.save!
   end
 
