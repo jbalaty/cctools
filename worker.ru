@@ -62,7 +62,7 @@ markets_of_interest = markets_settings.select { |key| markets_filter.include? ke
 markets_of_interest.each { |k, v| puts "Market settings for #{k}: #{v.inspect}" }
 
 @sleep_time = 30 #seconds
-@thread_sleep_time = 30 #seconds
+@thread_sleep_time = 60 #seconds
 program_start = Time.now
 key=Cctools::Application.config.cryptsy_key
 secret=Cctools::Application.config.cryptsy_secret
@@ -102,7 +102,7 @@ while loop_run do
   end
 
   if @start_market_threads
-    markets = Market.all.take(2)
+    markets = Market.all.take(200)
     puts "Starting #{markets.length} market threads"
     @threads = []
     markets.map { |m| m.label }.each do |label|
@@ -113,8 +113,8 @@ while loop_run do
             local_label = label
             market_place.load_market_orders(local_label)
             market_place.load_market_trades(local_label, nil)
-            market_place.processs_market_trades(local_label)
-            market_place.collapse_candlesticks(local_label, 60, 900)
+            #market_place.processs_market_trades(local_label)
+            #market_place.collapse_candlesticks(local_label, 60, 900)
             puts "Sleeping thread of #{local_label} market for #{@thread_sleep_time} secs"
             sleep(@thread_sleep_time)
           rescue
